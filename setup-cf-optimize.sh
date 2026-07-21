@@ -58,7 +58,7 @@ cd /opt/cfst
 # -tl 200: 延迟上限200ms
 # -dn 10: 下载测速前10个IP
 # -sl 1: 下载速度下限1MB/s
-./cfst -tl 200 -cfcolo JP,TW,KR -dn 25 -sl 1 -p 25
+./cfst -tl 200 -cfcolo NRT,HND,KIX,TPE,KHH,ICN,GMP,PUS,SIN -dn 25 -sl 1 -p 25
 
 echo ""
 echo -e "${GREEN}✓ 测速完成${NC}"
