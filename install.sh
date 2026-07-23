@@ -186,8 +186,11 @@ echo -e "${GREEN}✓ 最新版本: $XRAY_VERSION${NC}"
 # 如果是 arm64 则 XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH_NAME}.zip"
 if [ "$ARCH_NAME" = "amd64" ]; then
     XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
-elif [ "$ARCH_NAME" = "arm64" ]; then
+fi
+
+if [ "$ARCH_NAME" = "arm64" ]; then
     XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH_NAME}.zip"
+fi
 
 mkdir -p $XRAY_DIR
 cd $XRAY_DIR
