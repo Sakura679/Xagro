@@ -179,7 +179,7 @@ echo -e "${YELLOW}[3/5] 安装Xray内核...${NC}"
 # 下载Xray
 XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest 2>/dev/null | \
     grep '"tag_name"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
-XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
+XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip"
 
 mkdir -p $XRAY_DIR
 cd $XRAY_DIR
