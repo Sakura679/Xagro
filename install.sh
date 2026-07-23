@@ -185,10 +185,10 @@ mkdir -p $XRAY_DIR
 cd $XRAY_DIR
 
 echo "下载Xray ${XRAY_VERSION}..."
-wget -q "$XRAY_URL" -O xray.zip
-unzip -o xray.zip
-rm xray.zip
-chmod +x xray
+wget -q "$XRAY_URL" -O /usr/local/bin/xray.zip
+unzip -o /usr/local/bin/xray.zip
+rm /usr/local/bin/xray.zip
+chmod +x /usr/local/bin/xray
 
 echo -e "${GREEN}✓ Xray安装完成${NC}"
 
