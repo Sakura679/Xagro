@@ -3,6 +3,8 @@
 # ============================================
 # VPS代理节点+Argo隧道+CF优选 一键安装脚本
 # 支持系统: Debian 10+, Ubuntu 18+, Alpine 3.12+
+# 用法: bash <(curl -Ls xxx.sh)          # 安装
+#      bash <(curl -Ls xxx.sh) uninstall # 卸载
 # ============================================
 
 set -e
@@ -13,8 +15,99 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# 配置文件路径
+CONFIG_FILE="/opt/xray/node_config.txt"
+XRAY_DIR="/opt/xray"
+LOG_DIR="/var/log/xray"
+
 # ============================================
-# 第一步：系统检测
+# 卸载函数
+# ============================================
+
+uninstall() {
+    echo -e "${YELLOW}[卸载] 开始卸载Xray+Argo隧道...${NC}"
+    
+    # 检查是否为root
+    if [ "$(id -u)" -ne 0 ]; then
+        echo -e "${RED}❌ 卸载需要root权限，请使用 sudo 运行${NC}"
+        exit 1
+    fi
+    
+    # 第一步：停止服务
+    echo -e "${YELLOW}[1/5] 停止服务...${NC}"
+    
+    systemctl stop xray 2>/dev/null || true
+    systemctl stop cloudflared-temp 2>/dev/null || true
+    echo -e "${GREEN}✓ 服务已停止${NC}"
+    
+    # 第二步：禁用服务
+    echo -e "${YELLOW}[2/5] 禁用服务...${NC}"
+    
+    systemctl disable xray 2>/dev/null || true
+    systemctl disable cloudflared-temp 2>/dev/null || true
+    echo -e "${GREEN}✓ 服务已禁用${NC}"
+    
+    # 第三步：删除systemd服务文件
+    echo -e "${YELLOW}[3/5] 删除systemd服务文件...${NC}"
+    
+    rm -f /etc/systemd/system/xray.service
+    rm -f /etc/systemd/system/cloudflared-temp.service
+    rm -f /etc/systemd/system/cloudflared-fixed.service 2>/dev/null || true
+    systemctl daemon-reload
+    echo -e "${GREEN}✓ 服务文件已删除${NC}"
+    
+    # 第四步：卸载软件包
+    echo -e "${YELLOW}[4/5] 卸载软件包...${NC}"
+    
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+    fi
+    
+    if [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
+        apt-get remove -y cloudflared 2>/dev/null || true
+        apt-get autoremove -y 2>/dev/null || true
+    elif [ "$OS" = "alpine" ]; then
+        apk del cloudflared 2>/dev/null || true
+    fi
+    echo -e "${GREEN}✓ 软件包已卸载${NC}"
+    
+    # 第五步：删除文件和目录
+    echo -e "${YELLOW}[5/5] 删除文件和目录...${NC}"
+    
+    # 删除Xray目录
+    if [ -d "$XRAY_DIR" ]; then
+        rm -rf "$XRAY_DIR"
+        echo -e "${GREEN}✓ 已删除 $XRAY_DIR${NC}"
+    fi
+    
+    # 删除日志目录
+    if [ -d "$LOG_DIR" ]; then
+        rm -rf "$LOG_DIR"
+        echo -e "${GREEN}✓ 已删除 $LOG_DIR${NC}"
+    fi
+    
+    # 删除cloudflared配置
+    rm -rf /root/.cloudflared 2>/dev/null || true
+    rm -f /etc/cloudflared/config.yml 2>/dev/null || true
+    
+    echo ""
+    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}✓ 卸载完成！${NC}"
+    echo -e "${GREEN}========================================${NC}"
+    echo ""
+    echo -e "${YELLOW}已删除的内容：${NC}"
+    echo "  • Xray核心程序"
+    echo "  • Cloudflared隧道客户端"
+    echo "  • 所有配置文件"
+    echo "  • 日志文件"
+    echo "  • Systemd服务"
+    echo ""
+    exit 0
+}
+
+# ============================================
+# 系统检测
 # ============================================
 
 echo -e "${YELLOW}[1/5] 系统检测中...${NC}"
@@ -52,6 +145,14 @@ esac
 echo -e "${GREEN}✓ 架构: $ARCH_NAME${NC}"
 
 # ============================================
+# 检查命令行参数
+# ============================================
+
+if [ "$1" = "uninstall" ]; then
+    uninstall
+fi
+
+# ============================================
 # 第二步：依赖检查与安装
 # ============================================
 
@@ -59,9 +160,9 @@ echo -e "${YELLOW}[2/5] 依赖检查与安装...${NC}"
 
 if [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
     apt-get update
-    apt-get install -y curl wget unzip jq
+    apt-get install -y curl wget unzip jq openssl
 elif [ "$OS" = "alpine" ]; then
-    apk add --no-cache curl wget unzip jq
+    apk add --no-cache curl wget unzip jq openssl
 else
     echo -e "${RED}❌ 不支持的系统${NC}"
     exit 1
@@ -79,8 +180,8 @@ echo -e "${YELLOW}[3/5] 安装Xray内核...${NC}"
 XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | cut -d'"' -f4)
 XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH_NAME}.zip"
 
-mkdir -p /opt/xray
-cd /opt/xray
+mkdir -p $XRAY_DIR
+cd $XRAY_DIR
 
 echo "下载Xray ${XRAY_VERSION}..."
 wget -q "$XRAY_URL" -O xray.zip
@@ -105,11 +206,11 @@ WS_PATH="/$(head -c 16 /dev/urandom | base64 | tr -d '=+/' | cut -c1-16)"
 echo "WebSocket路径: $WS_PATH"
 
 # 创建配置文件
-cat > /opt/xray/config.json << EOF
+cat > $XRAY_DIR/config.json << EOF
 {
   "log": {
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log",
+    "access": "$LOG_DIR/access.log",
+    "error": "$LOG_DIR/error.log",
     "loglevel": "warning"
   },
   "inbounds": [
@@ -134,8 +235,8 @@ cat > /opt/xray/config.json << EOF
         "tlsSettings": {
           "certificates": [
             {
-              "certificateFile": "/opt/xray/cert.pem",
-              "keyFile": "/opt/xray/key.pem"
+              "certificateFile": "$XRAY_DIR/cert.pem",
+              "keyFile": "$XRAY_DIR/key.pem"
             }
           ]
         }
@@ -151,8 +252,8 @@ cat > /opt/xray/config.json << EOF
 }
 EOF
 
-mkdir -p /var/log/xray
-chmod 755 /var/log/xray
+mkdir -p $LOG_DIR
+chmod 755 $LOG_DIR
 
 echo -e "${GREEN}✓ Xray配置完成${NC}"
 
@@ -163,7 +264,9 @@ echo -e "${GREEN}✓ Xray配置完成${NC}"
 echo -e "${YELLOW}[5/5] 安装Cloudflared...${NC}"
 
 if [ "$OS" = "debian" ] || [ "$OS" = "ubuntu" ]; then
-    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | apt-key add -
+    # 添加Cloudflare官方仓库
+    mkdir -p /usr/share/keyrings
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
     echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/cloudflared.list
     apt-get update
     apt-get install -y cloudflared
@@ -179,10 +282,10 @@ echo -e "${GREEN}✓ Cloudflared安装完成${NC}"
 
 echo -e "${YELLOW}生成自签证书...${NC}"
 
-openssl req -x509 -newkey rsa:2048 -keyout /opt/xray/key.pem -out /opt/xray/cert.pem -days 365 -nodes -subj "/CN=example.com"
+openssl req -x509 -newkey rsa:2048 -keyout $XRAY_DIR/key.pem -out $XRAY_DIR/cert.pem -days 365 -nodes -subj "/CN=example.com"
 
-chmod 644 /opt/xray/cert.pem
-chmod 600 /opt/xray/key.pem
+chmod 644 $XRAY_DIR/cert.pem
+chmod 600 $XRAY_DIR/key.pem
 
 echo -e "${GREEN}✓ 证书生成完成${NC}"
 
@@ -264,11 +367,12 @@ echo -e "${YELLOW}获取Argo隧道信息...${NC}"
 sleep 5
 
 # 从metrics端口获取隧道域名
-TUNNEL_DOMAIN=$(curl -s http://localhost:3001/quicktunnel | jq -r '.hostname' 2>/dev/null || echo "获取失败")
+TUNNEL_DOMAIN=$(curl -s http://localhost:3001/quicktunnel 2>/dev/null | jq -r '.hostname' 2>/dev/null || echo "")
 
-if [ "$TUNNEL_DOMAIN" = "获取失败" ] || [ -z "$TUNNEL_DOMAIN" ]; then
+if [ -z "$TUNNEL_DOMAIN" ] || [ "$TUNNEL_DOMAIN" = "null" ]; then
     echo -e "${YELLOW}⚠ 无法自动获取隧道域名，请手动查看日志${NC}"
-    journalctl -u cloudflared-temp -n 20
+    echo -e "${YELLOW}查看日志命令: journalctl -u cloudflared-temp -n 20${NC}"
+    TUNNEL_DOMAIN="获取失败，请查看日志"
 else
     echo -e "${GREEN}✓ 隧道域名: $TUNNEL_DOMAIN${NC}"
 fi
@@ -300,7 +404,7 @@ EOF
 VMESS_LINK="vmess://$VMESS_CONFIG"
 
 # 保存配置到文件
-cat > /opt/xray/node_config.txt << EOF
+cat > $CONFIG_FILE << EOF
 === Xray节点配置信息 ===
 
 【基本信息】
@@ -340,7 +444,7 @@ echo -e "${GREEN}✓ 安装完成！${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${YELLOW}【重要信息】${NC}"
-echo "1. 节点配置已保存到: /opt/xray/node_config.txt"
+echo "1. 节点配置已保存到: $CONFIG_FILE"
 echo "2. Xray日志: journalctl -u xray -f"
 echo "3. Cloudflared日志: journalctl -u cloudflared-temp -f"
 echo ""
@@ -362,8 +466,11 @@ echo "  1. 使用CloudflareSpeedTest找到最快IP"
 echo "  2. 修改本地hosts或DNS"
 echo "  3. 将节点地址改为优选IP"
 echo ""
+echo -e "${YELLOW}【卸载方法】${NC}"
+echo "  运行: bash <(curl -Ls xxx.sh) uninstall"
+echo ""
 
-cat /opt/xray/node_config.txt
+cat $CONFIG_FILE
 
 echo ""
 echo -e "${GREEN}祝你使用愉快！${NC}"
