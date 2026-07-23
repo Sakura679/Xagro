@@ -171,7 +171,8 @@ echo -e "${YELLOW}[3/5] 安装Xray内核...${NC}"
 
 # 获取最新版本号（改进方法）
 echo "获取最新版本信息..."
-XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest 2>/dev/null | grep -o '"tag_name":"[^"]*' | cut -d'"' -f4 | head -1)
+XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest 2>/dev/null | \
+    grep '"tag_name"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
 
 if [ -z "$XRAY_VERSION" ]; then
     echo -e "${YELLOW}⚠ 无法获取最新版本，使用默认版本 v1.8.7${NC}"
@@ -181,7 +182,12 @@ fi
 echo -e "${GREEN}✓ 最新版本: $XRAY_VERSION${NC}"
 
 # 构建下载URL
-XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH_NAME}.zip"
+# 判断 ARCH_NAME 如果是 amd64 则 XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
+# 如果是 arm64 则 XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH_NAME}.zip"
+if [ "$ARCH_NAME" = "amd64" ]; then
+    XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
+elif [ "$ARCH_NAME" = "arm64" ]; then
+    XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH_NAME}.zip"
 
 mkdir -p $XRAY_DIR
 cd $XRAY_DIR
