@@ -11,6 +11,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/Sakura679/Xagro/main/install.s
 ```bash
 # 优选
 bash <(curl -Ls https://raw.githubusercontent.com/Sakura679/Xagro/main/setup-cf-optimize.sh)
+
+curl -o /usr/local/bin/cfst https://raw.githubusercontent.com/Sakura679/Xagro/main/setup-cf-optimize.sh && chmod +x /usr/local/bin/cfst && cfst
 ```
 
 ```bash

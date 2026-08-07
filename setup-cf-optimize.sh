@@ -38,7 +38,7 @@ mkdir -p /opt/cfst
 cd /opt/cfst
 
 wget -q "$CFST_URL" -O cfst.tar.gz
-tar -zxf cfst.tar.gz
+tar -zxf cfst.tar.gz --strip-components=1
 rm cfst.tar.gz
 chmod +x cfst
 
