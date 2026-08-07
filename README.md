@@ -1,7 +1,7 @@
 # Xagro
 基于xray+agro的vmess+tls+ws节点快速搭建
 ```bash
-curl -o /usr/local/bin/xargo https://raw.githubusercontent.com/Sakura679/Xagro/main/xargo.sh && chmod +x xargo && xargo
+curl -o /usr/local/bin/xargo https://raw.githubusercontent.com/Sakura679/Xagro/main/xargo.sh && chmod +x /usr/local/bin/xargo && xargo
 ```
 
 <!-- ```bash

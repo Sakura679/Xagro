@@ -54,7 +54,10 @@ EOF
 }
 
 load_state() {
-    [[ -f "$STATE_FILE" ]] && source "$STATE_FILE"
+    if [ -f "$STATE_FILE" ]; then
+        source "$STATE_FILE"
+    fi
+    return 0
 }
 
 # ---------- 系统探测模块 ----------
@@ -474,7 +477,7 @@ main_menu() {
         echo -e "${BLUE}VMess + Argo Tunnel 管理脚本 v${SCRIPT_VERSION}${NC}"
         echo "————————————————————————————————————"
         load_state
-        if [[ -n "$UUID" ]]; then
+        if [[ -n "${UUID:-}" ]]; then
             echo -e "状态: ${GREEN}已安装${NC} | 模式: ${TUNNEL_MODE} | 域名: ${CLOUDFLARED_URL:-获取中...}"
         else
             echo -e "状态: ${RED}未安装${NC}"
