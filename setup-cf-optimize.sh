@@ -4,12 +4,16 @@
 # Cloudflare优选IP配置脚本
 # ============================================
 
-set -e
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+# 支持非交互模式：通过环境变量传参
+# CFST_COLO="NRT,HND,KIX" CFST_TL=200 CFST_DN=5 CFST_SL=1 CFST_P=5
+# CFST_MODE=hosts CFST_DOMAIN=proxy.example.com ./setup-cf-optimize.sh
 
 echo -e "${YELLOW}=== Cloudflare优选IP配置 ===${NC}"
 echo ""
@@ -54,12 +58,15 @@ echo ""
 
 cd /opt/cfst
 
+# 可配置参数 (环境变量优先，其次默认值)
+CFST_COLO="${CFST_COLO:-NRT,HND,KIX,TPE,KHH,ICN,GMP,PUS,SIN,LAX,SJC}"
+CFST_TL="${CFST_TL:-200}"
+CFST_DN="${CFST_DN:-5}"
+CFST_SL="${CFST_SL:-1}"
+CFST_P="${CFST_P:-5}"
+
 # 运行测速
-# -tl 200: 延迟上限200ms
-# -dn 10: 下载测速前10个IP
-# -sl 1: 下载速度下限1MB/s
-./cfst -httping -cfcolo NRT,HND,KIX,TPE,KHH,ICN,GMP,PUS,SIN,LAX,SJC -tl 200 -dn 5 -sl 1 -p 5
-# ./cfst -httping -cfcolo HKG -tl 200 -dn 5 -sl 1 -p 5
+./cfst -httping -cfcolo "$CFST_COLO" -tl "$CFST_TL" -dn "$CFST_DN" -sl "$CFST_SL" -p "$CFST_P"
 
 echo ""
 echo -e "${GREEN}✓ 测速完成${NC}"
@@ -81,40 +88,49 @@ fi
 echo -e "${GREEN}✓ 最快IP: $BEST_IP${NC}"
 
 # ============================================
-# 配置方式选择
+# 配置方式选择 (支持非交互模式)
 # ============================================
 
-echo ""
-echo -e "${YELLOW}【配置方式选择】${NC}"
-echo "1. 修改本地hosts文件"
-echo "2. 修改DNS解析"
-echo "3. 仅显示结果"
-echo ""
+# 非交互模式：通过环境变量指定
+# CFST_MODE=hosts CFST_DOMAIN=proxy.example.com
+# CFST_MODE=dns
+# CFST_MODE=show
+CHOICE="${CFST_MODE:-}"
+DOMAIN="${CFST_DOMAIN:-}"
 
-read -p "请选择 (1-3): " CHOICE
+if [[ -z "$CHOICE" ]]; then
+    echo ""
+    echo -e "${YELLOW}【配置方式选择】${NC}"
+    echo "1. 修改本地hosts文件"
+    echo "2. 修改DNS解析"
+    echo "3. 仅显示结果"
+    echo ""
+    read -rp "请选择 (1-3): " CHOICE
+fi
 
 case $CHOICE in
-    1)
-        read -p "请输入要加速的域名 (如: proxy.example.com): " DOMAIN
-        
-        # 备份hosts
-        cp /etc/hosts /etc/hosts.bak
-        
+    1|hosts)
+        [[ -z "$DOMAIN" ]] && read -rp "请输入要加速的域名 (如: proxy.example.com): " DOMAIN
+        [[ -z "$DOMAIN" ]] && { echo -e "${RED}❌ 域名不能为空${NC}"; exit 1; }
+
+        # 备份hosts (带时间戳防并发覆盖)
+        cp /etc/hosts "/etc/hosts.bak.$(date +%s)"
+
         # 移除旧记录
         sed -i "/$DOMAIN/d" /etc/hosts
-        
+
         # 添加新记录
         echo "$BEST_IP  $DOMAIN" >> /etc/hosts
-        
+
         echo -e "${GREEN}✓ hosts已更新${NC}"
         echo "  $BEST_IP  $DOMAIN"
         ;;
-    2)
+    2|dns)
         echo -e "${YELLOW}请在你的DNS服务商添加以下A记录:${NC}"
         echo "  记录类型: A"
         echo "  记录值: $BEST_IP"
         ;;
-    3)
+    3|show|*)
         echo -e "${GREEN}✓ 测速结果已保存到: /opt/cfst/result.csv${NC}"
         ;;
 esac

@@ -9,6 +9,18 @@
 set -euo pipefail
 
 # ---------- 全局常量 ----------
+# ---------- 常量：已知版本校验和 (需随版本更新同步维护) ----------
+# 格式: "版本号 SHA256校验和"
+# 来源: https://github.com/XTLS/Xray-core/releases / https://github.com/cloudflare/cloudflared/releases
+XRAY_VERSION="${XRAY_VERSION:-26.3.27}"
+XRAY_SHA256_AMD64="23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
+XRAY_SHA256_ARM64="4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
+XRAY_SHA256_ARMV7="c7265ae13c63ca0241a037df4ef960ad37938c8a67d984cc08834b2cfdf5654b"
+
+CLOUDFLARED_VERSION="${CLOUDFLARED_VERSION:-2026.8.2}"
+CLOUDFLARED_SHA256_AMD64="fcfb02b575a52ca1af2e3267af4e1517bcdeb30ac48c834c69abaed3c0576ad2"
+CLOUDFLARED_SHA256_ARM64="7747d94570fb390cf47dcb4f9555c193c6355cda9793f0d878d9049e5d6a7790"
+CLOUDFLARED_SHA256_ARMV7="19809425f60a6261241dfa66a42b4115bab07c295396a3c4d5d7c247fc4e1412"
 SCRIPT_VERSION="2.0.0"
 WORK_DIR="/etc/vmess-argo"
 STATE_FILE="${WORK_DIR}/state.env"
@@ -30,7 +42,7 @@ hint()  { echo -e "${BLUE}[HINT]${NC} $*"; }
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 gen_uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || od -x /dev/urandom | head -1 | awk '{OFS="-"; print $2$3,$4,$5,$6,$7$8$9}'; }
-gen_port() { shuf -i 10000-65535 -n 1; }
+gen_port() { echo $((RANDOM % 55536 + 10000)); }
 gen_path() { tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12; }
 
 save_state() {
@@ -105,10 +117,20 @@ install_base_deps() {
 
 # ---------- Xray 模块 ----------
 install_xray() {
-    log "安装 Xray 核心..."
-    local url="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${ARCH}.zip"
+    log "安装 Xray 核心 v${XRAY_VERSION}..."
+    local url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-${ARCH}.zip"
     local tmpdir=$(mktemp -d)
+    local expected_sha256
+    case "$ARCH" in
+        amd64) expected_sha256="$XRAY_SHA256_AMD64" ;;
+        arm64) expected_sha256="$XRAY_SHA256_ARM64" ;;
+        armv7) expected_sha256="$XRAY_SHA256_ARMV7" ;;
+        *) err "不支持的架构: $ARCH"; exit 1 ;;
+    esac
     curl -fL# "$url" -o "${tmpdir}/xray.zip" || { err "Xray 下载失败"; exit 1; }
+    local actual_sha256
+    actual_sha256=$(sha256sum "${tmpdir}/xray.zip" | awk '{print $1}')
+    [[ "$actual_sha256" == "$expected_sha256" ]] || { err "Xray 校验和不匹配! 期望: $expected_sha256, 实际: $actual_sha256"; exit 1; }
     unzip -qo "${tmpdir}/xray.zip" -d "$tmpdir"
     install -m 755 "${tmpdir}/xray" "$XRAY_BIN"
     rm -rf "$tmpdir"
@@ -144,11 +166,23 @@ EOF
 
 # ---------- Cloudflared 模块 ----------
 install_cloudflared() {
-    log "安装 Cloudflared..."
-    local url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}"
+    log "安装 Cloudflared v${CLOUDFLARED_VERSION}..."
+    local url="https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-${ARCH}"
     [[ "$ARCH" == "armv7" ]] && url="${url}-arm"
-    curl -fL# "$url" -o "$CLOUDFLARED_BIN" || { err "Cloudflared 下载失败"; exit 1; }
-    chmod +x "$CLOUDFLARED_BIN"
+    local tmpdir=$(mktemp -d)
+    local expected_sha256
+    case "$ARCH" in
+        amd64) expected_sha256="$CLOUDFLARED_SHA256_AMD64" ;;
+        arm64) expected_sha256="$CLOUDFLARED_SHA256_ARM64" ;;
+        armv7) expected_sha256="$CLOUDFLARED_SHA256_ARMV7" ;;
+        *) err "不支持的架构: $ARCH"; exit 1 ;;
+    esac
+    curl -fL# "$url" -o "${tmpdir}/cloudflared" || { err "Cloudflared 下载失败"; exit 1; }
+    local actual_sha256
+    actual_sha256=$(sha256sum "${tmpdir}/cloudflared" | awk '{print $1}')
+    [[ "$actual_sha256" == "$expected_sha256" ]] || { err "Cloudflared 校验和不匹配! 期望: $expected_sha256, 实际: $actual_sha256"; exit 1; }
+    install -m 755 "${tmpdir}/cloudflared" "$CLOUDFLARED_BIN"
+    rm -rf "$tmpdir"
     "$CLOUDFLARED_BIN" --version | head -1
 }
 
@@ -170,7 +204,7 @@ config_cloudflared_fixed() {
     read -rp "请输入 Tunnel ID (或留空自动创建): " TUNNEL_ID
     if [[ -z "$TUNNEL_ID" ]]; then
         log "自动创建 Tunnel..."
-        TUNNEL_ID=$("$CLOUDFLARED_BIN" tunnel create "vmess-argo-${UUID:0:8}" 2>&1 | grep -oP '(?<=Created tunnel ).*' | tr -d ' ')
+        SHORT_UUID="${UUID:0:8}"; TUNNEL_ID=$("$CLOUDFLARED_BIN" tunnel create "vmess-argo-${SHORT_UUID}" 2>&1 | grep -oP '(?<=Created tunnel ).*' | tr -d ' ' )
         [[ -z "$TUNNEL_ID" ]] && { err "创建失败，请手动执行 cloudflared tunnel create"; exit 1; }
         log "创建成功: $TUNNEL_ID"
     fi
@@ -405,6 +439,7 @@ update_temp_tunnel() {
 
 # ---------- 卸载清理 ----------
 do_uninstall() {
+    detect_os
     load_state
     log "开始卸载清理..."
 
